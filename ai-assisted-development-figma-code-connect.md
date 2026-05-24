@@ -2,6 +2,8 @@
 
 This document explains how engineers can use Figma Code Connect together with the Figma MCP server and GitHub Copilot in VS Code to generate design-system-aligned code directly from Figma designs.
 
+> **Scope:** This guide applies to **web and React** components only. It does **not** cover other platforms such as native mobile (iOS / Android / React Native), AEM, or any non-React framework. While Figma Code Connect itself supports those platforms, the setup, tooling, and Jenkins automation described here are specific to our web/React workflow on the Nextgen and auro-atomic codebases.
+
 ---
 
 ## 1. Figma Code Connect
@@ -98,6 +100,8 @@ The agent will call the appropriate MCP tools, receive the enriched context, and
 
 This section explains how to actually bind a code component to its Figma counterpart using the Code Connect CLI.
 
+> **Note:** The `@figma/code-connect` package is already installed and available in the **Nextgen** codebase. You do not need to install it separately — just create `.figma.tsx` files alongside your components and the CLI will pick them up.
+
 ### The `figma.connect` function
 
 `figma.connect` is the entry point. It is a function from the `@figma/code-connect` npm package that you call inside a `.figma.tsx` file. Important: this file is **never executed at runtime** — the Code Connect CLI parses it as a TypeScript AST and treats your code as structured metadata, not executable logic.
@@ -161,38 +165,34 @@ The `example` function returns the JSX snippet that Dev Mode (and the AI agent) 
 - You can use real types, hooks, and imports without mocking anything — they're never run.
 - Conditionals and ternaries are emitted **verbatim** in the output, not evaluated. You can't dynamically build `figma.connect` calls in a `for` loop.
 
-### Publishing
+### Publishing — handled by Jenkins
 
-After writing the mapping, publish it so it appears in Figma:
+You **do not need to manually publish** Code Connect mappings. A Jenkins build is configured to handle this automatically:
+
+- The Jenkins job is triggered on every commit to the **auro-atomic** component library.
+- It scans the library for `*.figma.tsx` files.
+- It calls the Figma API using a token configured internally in Jenkins.
+- It publishes the connected components to Figma.
+
+This means whenever you change a component (or its `.figma.tsx` mapping) in `auro-atomic`, the updated mapping appears in Figma's Dev Mode and the Figma MCP server automatically — no manual `publish` step required.
+
+### Validating your mappings locally
+
+Although publishing is automated, you are responsible for making sure your `.figma.tsx` files are **error-free** before committing. Otherwise the Jenkins build will fail.
+
+Run a dry-run before pushing your changes:
 
 ```bash
-npx figma connect publish
+npx figma connect publish --token=<your-figma-token> --dry-run
 ```
 
-This uploads the parsed mapping (component reference, Figma node ID, prop mappings, example snippet as a string) via Figma's REST API. Figma stores it server-side, keyed by the Figma node ID.
+The `--dry-run` flag parses all `*.figma.tsx` files and reports any errors **without actually publishing** anything to Figma. Fix any reported issues before committing.
 
 ### How this helps the AI agent generate code
 
-When Copilot calls `get_code` or `get_code_connect_map` on a frame that contains connected components, the Figma MCP server doesn't just return layout data. For each connected instance it injects a synthetic `<CodeConnectSnippet>` marker into the context window that includes:
+Without Code Connect, the AI looks at a Figma design and tries to rebuild each element from scratch by guessing — often producing lookalike code that doesn't match our real components. With Code Connect, the AI is told *"this is the team's Button component, here's how to import it, here's how to use it"* and simply uses the real component.
 
-- **Design properties** — the Figma component's current property values (variant, boolean props, text content)
-- **Import statement** — the exact import line to use
-- **Component snippet** — the JSX example from your `figma.connect` call, with props filled in to match the design
-- **Custom instructions** — any guidance you've added (accessibility notes, prop patterns, team conventions)
-
-The agent receives this enriched context and, instead of inventing a fresh `<div className="...">` from pixels, writes the real component call with the correct import and props.
-
-### Practical accuracy
-
-Even with Code Connect set up well, expect roughly **85–90% accuracy** on well-structured frames. The remaining 10–15% typically requires manual refinement for responsive breakpoints, interaction states, and accessibility details — these are areas the agent still benefits from human review.
-
-### Best practices
-
-- Start by connecting your **most frequently used components** (Button, Input, Card, Modal).
-- Keep prop mappings **in sync** with the codebase when component APIs change.
-- Add **custom instructions** for components with non-obvious usage patterns.
-- Use **Storybook integration** if you already maintain stories — it avoids duplicating examples.
-- Treat `.figma.tsx` files as **part of the design system contract**: review them in PRs like any other code.
+Technically, when Copilot calls `get_code` or `get_code_connect_map`, the Figma MCP server injects a `<CodeConnectSnippet>` into the context for each connected component, containing the import statement, the JSX example with props filled in to match the design, and any custom instructions.
 
 ---
 
