@@ -1,0 +1,15 @@
+.nx/polygraph
+.claude/worktrees
+.claude/settings.local.json
+vite.config.*.timestamp*
+vitest.config.*.timestamp*
+.vitest
+
+# dependencies & build output
+node_modules
+dist
+coverage
+
+# Nx
+.nx/cache
+.nx/workspace-data
